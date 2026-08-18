@@ -1,0 +1,90 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "then-ecommerce",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-08-05",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  // Bindings carry no IDs on purpose. Wrangler creates them locally on
+  // `wrangler dev` and provisions them on the account at deploy time, so this
+  // template stays free of account-specific values.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // Drizzle Kit writes its SQL here, so Wrangler reads migrations from the
+      // same place instead of the default ./migrations.
+      "migrations_dir": "drizzle","database_id": "82a62e17-8a6c-4a14-b5be-388b1e089597","database_name": "then-ecommerce"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET","bucket_name": "then-ecommerce","preview_bucket_name": "then-ecommerce"
+    }
+  ],
+  // The period must be either 10 or 60 seconds. Each distinct limit needs its
+  // own binding, and each namespace_id must be unique within the account:
+  // bindings that share one share their counters, across Workers. Deploying a
+  // second store? Renumber these first. See "Notes for maintainers" in
+  // README.md.
+  "ratelimits": [
+    {
+      "name": "ORDER_LOOKUP_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 8,
+        "period": 60
+      }
+    },
+    {
+      "name": "PAYMENT_REFRESH_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 12,
+        "period": 60
+      }
+    },
+    {
+      "name": "ORDER_CLAIM_LIMITER",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    },
+    {
+      "name": "CHECKOUT_LIMITER",
+      "namespace_id": "1005",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    },
+    {
+      "name": "WEBHOOK_LIMITER",
+      "namespace_id": "1004",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    },
+    // Setup runs once for the whole store, so this is keyed on a constant
+    // rather than on the caller. A wrong token should cost the guesser time.
+    {
+      "name": "SETUP_LIMITER",
+      "namespace_id": "1006",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "vars": {
+    "MAYAR_ENVIRONMENT": "sandbox",
+    "SHIPPING_FLAT_RATE": "0"
+  }
+}

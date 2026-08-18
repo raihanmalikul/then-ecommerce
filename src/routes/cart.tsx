@@ -1,0 +1,292 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { CircleAlert, Minus, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+import { useCart } from "@/components/cart-provider";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useCartProducts } from "@/hooks/use-cart-products";
+import { formatIdr } from "@/lib/format";
+import { productImageUrl } from "@/lib/images";
+import { EXIT_DURATION_MS, prefersReducedMotion } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/cart")({
+  component: CartPage,
+});
+
+/**
+ * A value derived from the cart, such as a line total. It settles into its new
+ * number so the eye is drawn to what the last click actually changed. It stays
+ * still until `animate` turns on, so nothing moves on page load.
+ */
+function DerivedAmount({
+  animate,
+  className,
+  value,
+}: {
+  animate: boolean;
+  className?: string;
+  value: string;
+}) {
+  return (
+    <span className={cn(className, animate && "bump-in")} key={value}>
+      {value}
+    </span>
+  );
+}
+
+function CartPage() {
+  const { clear, remove, setQuantity } = useCart();
+  const { error, items, loading, retry, subtotal } = useCartProducts();
+  const [leaving, setLeaving] = useState(() => new Set<string>());
+  const [changedByUser, setChangedByUser] = useState(false);
+  const exitTimers = useRef<number[]>([]);
+
+  useEffect(
+    () => () => {
+      for (const timer of exitTimers.current) {
+        window.clearTimeout(timer);
+      }
+    },
+    []
+  );
+
+  function afterExit(commit: () => void) {
+    const timer = window.setTimeout(() => {
+      commit();
+      exitTimers.current = exitTimers.current.filter((id) => id !== timer);
+    }, EXIT_DURATION_MS);
+
+    exitTimers.current.push(timer);
+  }
+
+  function changeQuantity(productId: string, quantity: number) {
+    setChangedByUser(true);
+    setQuantity(productId, quantity);
+  }
+
+  function removeItem(productId: string) {
+    setChangedByUser(true);
+
+    if (prefersReducedMotion()) {
+      remove(productId);
+      return;
+    }
+
+    // A second click inside the exit window must not queue a second timer.
+    if (leaving.has(productId)) {
+      return;
+    }
+
+    setLeaving((current) => new Set(current).add(productId));
+    afterExit(() => {
+      remove(productId);
+      setLeaving((current) => {
+        const next = new Set(current);
+        next.delete(productId);
+        return next;
+      });
+    });
+  }
+
+  function clearCart() {
+    setChangedByUser(true);
+
+    if (prefersReducedMotion()) {
+      clear();
+      return;
+    }
+
+    setLeaving(new Set(items.map(({ product }) => product.id)));
+    afterExit(() => {
+      clear();
+      setLeaving(new Set());
+    });
+  }
+
+  if (error) {
+    return (
+      <main className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-5 pt-20 pb-32 sm:px-8">
+        <Alert variant="destructive">
+          <CircleAlert aria-hidden="true" />
+          <AlertTitle>Could not load your bag.</AlertTitle>
+          <AlertDescription>
+            <p>{error}</p>
+            <p>Your items are still saved on this device.</p>
+          </AlertDescription>
+        </Alert>
+        <Button onClick={retry} type="button">
+          Try again
+        </Button>
+      </main>
+    );
+  }
+
+  if (loading) {
+    return (
+      <main className="mx-auto max-w-5xl px-5 pt-14 pb-20 sm:px-8">
+        <div className="flex flex-col gap-3 pb-8">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-12 w-64 max-w-full" />
+        </div>
+        <Separator />
+        <div className="flex flex-col">
+          {["line-1", "line-2"].map((placeholder) => (
+            <div className="flex gap-4 py-6" key={placeholder}>
+              <Skeleton className="size-24 shrink-0 sm:size-32" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Skeleton className="h-5 w-40 max-w-full" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-7 w-28" />
+              </div>
+              <Skeleton className="h-5 w-16" />
+            </div>
+          ))}
+        </div>
+      </main>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <main className="mx-auto max-w-3xl px-5 pt-20 pb-32 sm:px-8">
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>Nothing here yet.</EmptyTitle>
+            <EmptyDescription>
+              Find something useful for the everyday and it will show up here.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button nativeButton={false} render={<Link to="/products" />}>
+              Browse the collection
+            </Button>
+          </EmptyContent>
+        </Empty>
+      </main>
+    );
+  }
+
+  return (
+    <main className="mx-auto max-w-5xl px-5 pt-14 pb-20 sm:px-8">
+      <div className="flex flex-wrap items-end justify-between gap-5 pb-8">
+        <div>
+          <p className="text-muted-foreground text-sm">Your bag</p>
+          <h1 className="mt-3 font-heading font-medium text-5xl tracking-[-0.06em]">
+            Ready when you are.
+          </h1>
+        </div>
+        <Button onClick={clearCart} variant="ghost">
+          Clear bag
+        </Button>
+      </div>
+      <Separator />
+
+      <div className="divide-y divide-border">
+        {items.map(({ line, product }) => (
+          <div
+            className="flex gap-4 py-6 transition-[opacity,transform] duration-150 ease-out-quint data-leaving:pointer-events-none data-leaving:-translate-y-2 data-leaving:opacity-0 sm:items-center sm:gap-6"
+            data-leaving={leaving.has(product.id) ? "" : undefined}
+            key={product.id}
+          >
+            <div className="size-24 shrink-0 overflow-hidden rounded-2xl bg-muted sm:size-32">
+              {productImageUrl(product.imageObjectKey) ? (
+                <img
+                  alt=""
+                  className="size-full object-cover"
+                  src={productImageUrl(product.imageObjectKey) ?? ""}
+                />
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1">
+              <Link
+                className="font-medium hover:underline"
+                params={{ slug: product.slug }}
+                to="/products/$slug"
+              >
+                {product.name}
+              </Link>
+              <p className="mt-1 text-muted-foreground text-sm">
+                {formatIdr(product.price)}
+              </p>
+              <ButtonGroup
+                aria-label={`${product.name} quantity`}
+                className="mt-3"
+              >
+                <Button
+                  aria-label={`Decrease ${product.name} quantity`}
+                  disabled={line.quantity <= 1}
+                  onClick={() => changeQuantity(product.id, line.quantity - 1)}
+                  size="icon-sm"
+                  variant="outline"
+                >
+                  <Minus aria-hidden="true" />
+                </Button>
+                <ButtonGroupText className="min-w-6 justify-center px-2 tabular-nums">
+                  {line.quantity}
+                </ButtonGroupText>
+                <Button
+                  aria-label={`Increase ${product.name} quantity`}
+                  disabled={line.quantity >= product.availableStock}
+                  onClick={() => changeQuantity(product.id, line.quantity + 1)}
+                  size="icon-sm"
+                  variant="outline"
+                >
+                  <Plus aria-hidden="true" />
+                </Button>
+              </ButtonGroup>
+            </div>
+            <div className="flex flex-col items-end gap-3">
+              <DerivedAmount
+                animate={changedByUser}
+                className="font-medium text-sm"
+                value={formatIdr(product.price * line.quantity)}
+              />
+              <Button
+                aria-label={`Remove ${product.name}`}
+                onClick={() => removeItem(product.id)}
+                size="icon-sm"
+                variant="ghost"
+              >
+                <Trash2 aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 ml-auto flex max-w-sm flex-col gap-3">
+        <Separator />
+        <div className="flex items-center justify-between pt-3 text-sm">
+          <span className="text-muted-foreground">Subtotal</span>
+          <DerivedAmount
+            animate={changedByUser}
+            className="font-medium"
+            value={formatIdr(subtotal)}
+          />
+        </div>
+        <p className="text-muted-foreground text-xs leading-5">
+          Flat-rate shipping is calculated at checkout.
+        </p>
+        <Button
+          className="w-full"
+          nativeButton={false}
+          render={<Link to="/checkout" />}
+        >
+          Continue to checkout
+        </Button>
+      </div>
+    </main>
+  );
+}
